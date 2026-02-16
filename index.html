@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apple TV+ Clone (Emby)</title>
+    <style>
+        /* --- CSS STYLES --- */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background-color: #000000;
+            color: #f5f5f7;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            overflow-x: hidden;
+        }
+        .navbar {
+            position: fixed; top: 0; width: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            z-index: 100; border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .nav-content { display: flex; justify-content: space-between; align-items: center; padding: 15px 40px; max-width: 1400px; margin: 0 auto; }
+        .logo { font-size: 24px; font-weight: bold; }
+        .nav-links { list-style: none; display: flex; gap: 20px; }
+        .nav-links a { color: #a1a1a6; text-decoration: none; font-size: 14px; transition: color 0.3s; }
+        .nav-links a:hover { color: #ffffff; }
+        .hero { position: relative; height: 85vh; background-size: cover; background-position: center; display: flex; align-items: flex-end; padding: 50px 40px; }
+        .hero-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(to top, #000000 0%, transparent 100%); z-index: 1; }
+        .hero-content { position: relative; z-index: 2; max-width: 600px; }
+        .hero-content h1 { font-size: 48px; margin-bottom: 10px; }
+        .hero-content p { font-size: 18px; color: #a1a1a6; margin-bottom: 20px; line-height: 1.4; }
+        .play-btn { background-color: #f5f5f7; color: #000; border: none; padding: 12px 32px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: transform 0.2s; }
+        .play-btn:hover { transform: scale(1.05); }
+        .movie-row { padding: 40px; }
+        .movie-row h2 { font-size: 22px; margin-bottom: 20px; }
+        .slider { display: flex; gap: 20px; overflow-x: auto; padding-bottom: 20px; scrollbar-width: none; }
+        .slider::-webkit-scrollbar { display: none; }
+        .movie-card { min-width: 250px; border-radius: 12px; overflow: hidden; transition: transform 0.3s ease; cursor: pointer; }
+        .movie-card:hover { transform: scale(1.04); }
+        .movie-card img { width: 100%; height: auto; display: block; }
+        .video-modal { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: #000000; z-index: 1000; display: flex; justify-content: center; align-items: center; }
+        .hidden { display: none !important; }
+        #emby-player { width: 100%; height: 100%; outline: none; background-color: #000000; }
+        .close-btn { position: absolute; top: 30px; right: 40px; background-color: rgba(255, 255, 255, 0.2); backdrop-filter: blur(10px); border: none; color: #ffffff; font-size: 20px; width: 44px; height: 44px; border-radius: 50%; cursor: pointer; z-index: 1001; transition: background-color 0.3s; }
+        .close-btn:hover { background-color: rgba(255, 255, 255, 0.4); }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar">
+        <div class="nav-content">
+            <div class="logo">tv+</div>
+            <ul class="nav-links">
+                <li><a href="#">Originals</a></li>
+                <li><a href="#">Movies</a></li>
+                <li><a href="#">Search</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <header id="hero-section" class="hero">
+        <div class="hero-overlay"></div>
+        <div class="hero-content">
+            <h1 id="hero-title">Loading...</h1>
+            <p id="hero-description">Connecting to Emby Server...</p>
+            <button class="play-btn">Play</button>
+        </div>
+    </header>
+
+    <main>
+        <section class="movie-row">
+            <h2>Latest Movies</h2>
+            <div id="movie-slider" class="slider"></div>
+        </section>
+    </main>
+
+    <div id="video-modal" class="video-modal hidden">
+        <button id="close-video" class="close-btn">✕</button>
+        <video id="emby-player" controls autoplay></video>
+    </div>
+
+    <script>
+        // --- JAVASCRIPT LOGIC ---
+        const EMBY_SERVER_URL = 'http://10.11.196.19:8096'; 
+        const API_KEY = 'E6280d32a3e7415da1918cc5487c394b';
+        const USER_ID = 'u0_a422'; 
+        let currentFeaturedMovieId = null;
+
+        function getImageUrl(itemId, imageType = 'Primary') {
+            return `${EMBY_SERVER_URL}/emby/Items/${itemId}/Images/${imageType}?api_key=${API_KEY}`;
+        }
+
+        async function fetchEmbyMovies() {
+            try {
+                const endpoint = `${EMBY_SERVER_URL}/emby/Users/${USER_ID}/Items?IncludeItemTypes=Movie&Recursive=true&Fields=Overview&Limit=20&api_key=${API_KEY}`;
+                const response = await fetch(endpoint);
+                const data = await response.json();
+                const movies = data.Items;
+
+                if (movies && movies.length > 0) {
+                    updateHeroSection(movies[0]); 
+                    populateSlider(movies);       
+                }
+            } catch (error) {
+                console.error("Error fetching from Emby:", error);
+                document.getElementById('hero-title').innerText = "Error Loading Emby";
+                document.getElementById('hero-description').innerText = "Please ensure you are connected to the same Wi-Fi network as your Emby server.";
+            }
+        }
+
+        function updateHeroSection(featuredMovie) {
+            const heroSection = document.getElementById('hero-section');
+            const heroTitle = document.getElementById('hero-title');
+            const heroDesc = document.getElementById('hero-description');
+
+            currentFeaturedMovieId = featuredMovie.Id;
+            heroTitle.innerText = featuredMovie.Name;
+            heroDesc.innerText = featuredMovie.Overview ? featuredMovie.Overview.substring(0, 150) + '...' : 'No description available.';
+
+            const backdropUrl = getImageUrl(featuredMovie.Id, 'Backdrop');
+            heroSection.style.backgroundImage = `url('${backdropUrl}')`;
+        }
+
+        function populateSlider(movies) {
+            const slider = document.getElementById('movie-slider');
+            slider.innerHTML = ''; 
+
+            movies.forEach(movie => {
+                const card = document.createElement('div');
+                card.className = 'movie-card';
+                card.addEventListener('click', () => playVideo(movie.Id));
+
+                const img = document.createElement('img');
+                img.src = getImageUrl(movie.Id, 'Primary'); 
+                img.alt = movie.Name;
+
+                card.appendChild(img);
+                slider.appendChild(card);
+            });
+        }
+
+        function playVideo(movieId) {
+            const videoUrl = `${EMBY_SERVER_URL}/emby/Videos/${movieId}/stream.mp4?api_key=${API_KEY}&static=true`;
+            const modal = document.getElementById('video-modal');
+            const player = document.getElementById('emby-player');
+            player.src = videoUrl;
+            modal.classList.remove('hidden');
+        }
+
+        document.querySelector('.play-btn').addEventListener('click', () => {
+            if (currentFeaturedMovieId) playVideo(currentFeaturedMovieId);
+        });
+
+        document.getElementById('close-video').addEventListener('click', () => {
+            const modal = document.getElementById('video-modal');
+            const player = document.getElementById('emby-player');
+            player.pause();
+            player.src = '';
+            modal.classList.add('hidden');
+        });
+
+        fetchEmbyMovies();
+    </script>
+</body>
+</html>
